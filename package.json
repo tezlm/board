@@ -1,0 +1,26 @@
+{
+  "name": "universal-whiteboard",
+  "version": "1.1.1",
+  "description": "A drawing program where everyone shares the same whiteboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.2",
+    "socket.io": "^4.4.0"
+  },
+  "engines": {
+    "node": "14.x"
+  },
+  "repository": {
+    "url": "https://glitch.com/edit/#!/universal-whiteboard"
+  },
+  "license": "MIT",
+  "keywords": [
+    "node",
+    "glitch",
+    "express",
+    "drawing"
+  ]
+}
