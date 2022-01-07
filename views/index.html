@@ -1,40 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>bored</title>
-    <meta charset="utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+	<head>
+		<title>bored</title>
+		<meta charset="utf-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <link rel="stylesheet" href="/style.css" />
-    <style>
-      body {
-        padding: 2em;
-      }
-    </style>
-  </head>
-  <body>
-    <p>public whiteboard service</p>
-    <ol>
-      <li>go to any path on this domain</li>
-      <li>share the same link with a friend</li>
-      <li>draw stuff</li>
-      <li>have a nice day</li>
-    </ol>
-    <script>
-      location.pathname = generate();
+		<link rel="stylesheet" href="/style.css" />
+		<style>
+body {
+	padding: 2em;
+}
+		</style>
+	</head>
+	<body>
+		<p>public whiteboard service</p>
+		<ol>
+			<li>go to any path on this domain</li>
+			<li>share the same link with a friend</li>
+			<li>draw stuff</li>
+			<li>have a nice day</li>
+		</ol>
+		<script>
+			location.pathname = generate();
 
-      function generate() {
-        const consonants = "bcdfghjklmnpqrstvwxyz";
-        const vowels = "aeiou";
-        const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
-        let word = "";
-        for (let i = 0; i < Math.random() * 2 + 2; i++) {
-          word += rnd(consonants);
-          word += rnd(vowels);
-        }
-        return word;
-      }
-    </script>
-  </body>
+			function generate() {
+							const consonants = "bcdfghjklmnpqrstvwxyz";
+							const vowels = "aeiou";
+							const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+							let word = "";
+							for (let i = 0; i < Math.random() * 2 + 2; i++) {
+											word += rnd(consonants);
+											word += rnd(vowels);
+										}
+							return word;
+						}
+		</script>
+	</body>
 </html>
