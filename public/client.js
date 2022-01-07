@@ -1,29 +1,197 @@
 const $ = e => document.getElementById(e);
 const socket = io();
+
+class Drawer {
+	constructor() {
+		this.canvas = new OffscreenCanvas(1e4, 1e4);
+		this.ctx = this.canvas.getContext("2d");
+		this.history = [];
+		this.pens = new Map();
+	
+		this.ctx.lineCap = "round";
+		this.ctx.lineJoin = "round";
+	}
+
+	chain(event) {
+		const { pens } = this;
+		if(event.type === "drawstart") {
+			const path = new Path2D();
+			path.moveTo(event.x, event.y);
+			pens.set(event.id, { ...event, path });
+		} else if(event.type === "drawmove") {
+			if(!pens.has(event.id)) return;
+			const pen = pens.get(event.id);
+			pen.path.lineTo(event.x, event.y);
+			this.ctx.strokeStyle = pen.color;
+			this.ctx.lineWidth = pen.stroke;
+			this.ctx.stroke(pen.path);
+		} else if(event.type === "drawend") {
+			if(!pens.has(event.id)) return;
+			const pen = pens.get(event.id);
+			pen.path.lineTo(event.x, event.y);
+			this.ctx.strokeStyle = pen.color;
+			this.ctx.lineWidth = pen.stroke;
+			this.ctx.stroke(pen.path);
+		}
+
+	}
+
+	render() {
+		this.ctx.clearRect(0, 0, 1e9, 1e9);
+		for(let event of this.history) this.chain(event);
+	}
+
+	add(event) {
+		this.history.push(event);
+		this.chain(event);
+	}
+}
+
+class Renderer {
+	constructor(canvas) {
+		this.drawer = new Drawer();
+		this.canvas = canvas;
+		this.ctx = canvas.getContext("2d");
+		this.pan = [0, 0];
+		this.resize();
+	}
+
+	resize() {
+		this.canvas.height = window.innerHeight;
+		this.canvas.width = window.innerWidth;
+		this.ctx.height = window.innerHeight;
+		this.ctx.width = window.innerWidth;
+		this.ctx.clearRect(0, 0, 99999, 99999);
+		this.render();
+	}
+
+	add(event) {
+		this.drawer.add(event);
+		this.render();
+	}
+
+	addAll(events) {
+		this.drawer.history.push(...events);
+		this.drawer.render();
+		this.render();
+	}
+
+	render() {
+		this.ctx.clearRect(0, 0, 99999, 99999);
+		this.ctx.drawImage(this.drawer.canvas, this.pan[0], this.pan[1]);
+	}
+}
+
+class ColorSelection {
+	constructor(parent) {
+		this.parent = parent;
+		this.color = "black";
+		this.current = null;
+		this.elements = [];
+	}
+
+	add(color) {
+		const button = document.createElement("button");
+		button.style.background = color;
+		button.addEventListener("click", () => {
+			if(this.current) this.current.classList.remove("selected");
+			button.classList.add("selected");
+			this.color = color;
+			this.current = button;
+		});
+		this.elements.push(button);
+		this.parent.append(button);
+	}
+
+	addAll(colors) {
+		for(let color of colors) this.add(color);
+	}
+
+	random() {
+		const el = this.elements[Math.floor(Math.random() * this.elements.length)];
+		el.click();
+	}
+}
+
+const renderer = new Renderer($("canvas"));
+const colors = new ColorSelection($("picker"));
+colors.addAll([
+	"#F45B69",
+	"#FE7F2D",
+	"#FCCA46",
+	"#87FF65",
+	"#00A5CF",
+	"#7D5BA6",
+	"#312F2F",
+]);
+colors.random();
+colors.add("white");
+
+let pressed = false;
+function mousedown(e) {
+	e = e.clientX ? e : e.touches?.[0];
+	if(!e) return;
+	pressed = true;
+	if(e.which !== 1) return;
+	const event = {
+		type: "drawstart",
+		x: e.clientX - renderer.pan[0],
+		y: e.clientY - renderer.pan[1],
+		color: colors.color,
+		stroke: colors.color === "white" ? 30 : 5,
+	};
+	renderer.add(event);
+	socket.emit("draw", event);
+}
+
+function mousemove(e) {
+	if(!pressed) return;
+	e = e.clientX ? e : e.touches?.[0];
+	if(!e) return;
+	if(e.which !== 1) {
+		renderer.pan[0] += e.movementX;
+		renderer.pan[1] += e.movementY;
+		renderer.render();
+		return;
+	}
+	const event = {
+		type: "drawmove",
+		x: e.clientX - renderer.pan[0],
+		y: e.clientY - renderer.pan[1],
+	};
+	renderer.add(event);
+	socket.emit("draw", event);
+}
+
+function mouseup(e) {
+	e = e.clientX ? e : e.touches?.[0];
+	if(!e) return;
+	pressed = false;
+	if(e.which !== 1) return;
+	const event = {
+		type: "drawend",
+		x: e.clientX - renderer.pan[0],
+		y: e.clientY - renderer.pan[1],
+	};
+	renderer.add(event);
+	socket.emit("draw", event);
+}
+
+socket.on("draw", (event) => {
+	if(socket.id === event.id) return;
+	renderer.add(event);
+});
+
+socket.on("sync", (data) => {
+	renderer.addAll(data);
+	if($("loading")) $("loading").remove();
+});
+
+socket.on("connect", () => {
+	socket.emit("join", location.pathname);
+});
+
 const canvas = $("canvas");
-const ctx = canvas.getContext("2d");
-const peers = new Map();
-let penColor = "black";
-
-const colors = document.querySelectorAll(".picker button");
-let colorel = colors[Math.floor(Math.random() * colors.length)];
-select(colorel);
-
-for (let el of colors) {
-	el.addEventListener("click", () => select(el));
-	el.style.background = el.id;
-}
-
-function select(el) {
-	penColor = el.id;
-	if (colorel) colorel.classList.remove("selected");
-	el.classList.add("selected");
-	colorel = el;
-}
-
-ctx.lineCap = "round";
-ctx.lineJoin = "round";
-
 canvas.addEventListener("mousedown", mousedown);
 canvas.addEventListener("mouseup", mouseup);
 canvas.addEventListener("mousemove", mousemove);
@@ -31,81 +199,5 @@ canvas.addEventListener("touchstart", mousedown);
 canvas.addEventListener("touchmove", mousemove);
 canvas.addEventListener("touchend", mouseup);
 canvas.addEventListener("touchcancel", mouseup);
-window.addEventListener("resize", resize);
-document.addEventListener("contextmenu", e => e.preventDefault());
+window.addEventListener("resize", renderer.resize);
 
-resize();
-
-function resize() {
-	canvas.height = window.innerHeight;
-	canvas.width = window.innerWidth;
-	ctx.height = window.innerHeight;
-	ctx.width = window.innerWidth;
-	ctx.clearRect(0, 0, 99999, 99999);
-	socket.emit("sync");
-}
-
-function mousedown(e) {
-	e = e.clientX ? e : e.touches[0];
-	socket.emit("drawstart", {
-		x: e.clientX,
-		y: e.clientY,
-		color: penColor,
-		stroke: penColor === "white" ? 30 : 5,
-	});
-}
-
-function mousemove(e) {
-	e = e.clientX ? e : e.touches[0];
-	socket.emit("drawmove", {
-		x: e.clientX,
-		y: e.clientY,
-	});
-}
-
-function mouseup(e) {
-	e = e.clientX ? e : e.touches[0];
-	socket.emit("drawend", {
-		x: e.clientX,
-		y: e.clientY,
-	});
-}
-
-socket.on("drawstart", (msg) => {
-	const path = new Path2D();
-	path.moveTo(msg.x, msg.y);
-	peers.set(msg.id, {
-		color: msg.color,
-		stroke: msg.stroke,
-		path,
-	});
-});
-
-socket.on("drawmove", (msg) => {
-	if(!peers.has(msg.id)) return;
-	const peer = peers.get(msg.id);
-	peer.path.lineTo(msg.x, msg.y);
-	ctx.strokeStyle = peer.color;
-	ctx.lineWidth = peer.stroke;
-	ctx.stroke(peer.path);
-});
-
-socket.on("drawend", (msg) => {
-	if(!peers.has(msg.id)) return;
-	const peer = peers.get(msg.id);
-	peer.path.lineTo(msg.x, msg.y);
-	ctx.strokeStyle = peer.color;
-	ctx.lineWidth = peer.stroke;
-	ctx.stroke(peer.path);
-	peers.delete(msg.id);
-});
-
-socket.on("gc", (id) => {
-	peers.delete(id);
-});
-
-socket.on("sync", (id) => {
-	if($("loading")) $("loading").remove();
-});
-
-socket.emit("join", location.pathname);
