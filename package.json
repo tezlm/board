@@ -2,9 +2,9 @@
 	"name": "multiplayer-whiteboard",
 	"version": "1.0.0",
 	"description": "A drawing program where everyone shares the same whiteboard",
-	"main": "server.js",
+	"main": "index.js",
 	"scripts": {
-		"start": "node server.js"
+		"start": "node index.js"
 	},
 	"dependencies": {
 		"express": "^4.17.2",
