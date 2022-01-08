@@ -1,9 +1,11 @@
 const $ = e => document.getElementById(e);
+const setStatus = str => $("status").innerText = str;
 const socket = io();
+const size = 15000;
 
 class Drawer {
 	constructor() {
-		this.canvas = new OffscreenCanvas(1e4, 1e4);
+		this.canvas = new OffscreenCanvas(size, size);
 		this.ctx = this.canvas.getContext("2d");
 		this.history = [];
 		this.pens = new Map();
@@ -33,15 +35,20 @@ class Drawer {
 			this.ctx.lineWidth = pen.stroke;
 			this.ctx.stroke(pen.path);
 		}
-
 	}
 
 	render() {
-		this.ctx.clearRect(0, 0, 1e9, 1e9);
+		this.ctx.clearRect(0, 0, size, size);
 		for(let event of this.history) this.chain(event);
 	}
 
 	add(event) {
+		for(let i = this.history.length - 1; i > 0; i--) {
+			if(this.history[i].id === event.id) {
+				if(!this.history[i].save) this.history.splice(i, 1);
+				break;
+			}
+		}
 		this.history.push(event);
 		this.chain(event);
 	}
@@ -52,7 +59,7 @@ class Renderer {
 		this.drawer = new Drawer();
 		this.canvas = canvas;
 		this.ctx = canvas.getContext("2d");
-		this.pan = [0, 0];
+		this.pan = [size/-2, size/-2];
 		this.resize();
 	}
 
@@ -61,7 +68,7 @@ class Renderer {
 		this.canvas.width = window.innerWidth;
 		this.ctx.height = window.innerHeight;
 		this.ctx.width = window.innerWidth;
-		this.ctx.clearRect(0, 0, 99999, 99999);
+		this.ctx.clearRect(0, 0, size, size);
 		this.render();
 	}
 
@@ -113,6 +120,7 @@ class ColorSelection {
 	}
 }
 
+const cursor = { pressed: false, x: 0, y: 0 };
 const renderer = new Renderer($("canvas"));
 const colors = new ColorSelection($("picker"));
 colors.addAll([
@@ -127,54 +135,73 @@ colors.addAll([
 colors.random();
 colors.add("white");
 
-let pressed = false;
-function mousedown(e) {
-	e = e.clientX ? e : e.touches?.[0];
-	if(!e) return;
-	pressed = true;
-	if(e.which !== 1) return;
-	const event = {
-		type: "drawstart",
-		x: e.clientX - renderer.pan[0],
-		y: e.clientY - renderer.pan[1],
-		color: colors.color,
-		stroke: colors.color === "white" ? 30 : 5,
-	};
-	renderer.add(event);
-	socket.emit("draw", event);
-}
-
-function mousemove(e) {
-	if(!pressed) return;
-	e = e.clientX ? e : e.touches?.[0];
-	if(!e) return;
-	if(e.which !== 1) {
-		renderer.pan[0] += e.movementX;
-		renderer.pan[1] += e.movementY;
-		renderer.render();
-		return;
+function parseType(e) {
+	switch(e.type) {
+		case "mousedown":
+		case "touchstart":
+			return "drawstart";
+		case "mousemove":
+		case "touchmove":
+			return "drawmove";
+		case "mouseup":
+		case "touchend":
+			return "drawend";
 	}
-	const event = {
-		type: "drawmove",
-		x: e.clientX - renderer.pan[0],
-		y: e.clientY - renderer.pan[1],
-	};
-	renderer.add(event);
-	socket.emit("draw", event);
 }
 
-function mouseup(e) {
-	e = e.clientX ? e : e.touches?.[0];
-	if(!e) return;
-	pressed = false;
-	if(e.which !== 1) return;
-	const event = {
-		type: "drawend",
-		x: e.clientX - renderer.pan[0],
-		y: e.clientY - renderer.pan[1],
-	};
-	renderer.add(event);
-	socket.emit("draw", event);
+function parseCoords(e) {
+	const norm = e.clientX ? e : e.touches?.[0];
+	if(!norm) return null;
+	return { x: norm.clientX, y: norm.clientY };
+}
+
+function parseDrawEvent(coords, type) {
+	if(type === "drawstart") {
+		if(cursor.pressed) return null;
+		return {
+			type,
+			save: true,
+			x: coords.x - renderer.pan[0],
+			y: coords.y - renderer.pan[1],
+			color: colors.color,
+			stroke: colors.color === "white" ? 30 : 5,
+		};
+	} else {
+		if(!cursor.pressed) return null;
+		return {
+			type,
+			save: true,
+			x: coords.x - renderer.pan[0],
+			y: coords.y - renderer.pan[1],
+		};
+
+	}
+}
+
+function handle(e) {
+	const coords = parseCoords(e);
+	if(!coords) return;
+	const type = parseType(e);
+	if(e.which === 1) {
+		setStatus("drawing");
+		const event = parseDrawEvent(coords, type);
+		if(!event) return;
+		renderer.add(event);
+		socket.emit("draw", event);
+	} else if(cursor.pressed && e.which === 2) {
+		setStatus("panning");
+		renderer.pan[0] += coords.x - cursor.x;
+		renderer.pan[1] += coords.y - cursor.y;
+		renderer.render();
+	}
+	if(type === "drawstart") cursor.pressed = true;
+	if(type === "drawend") {
+		setStatus("ready");
+		cursor.pressed = false;
+	}
+
+	cursor.x = coords.x;
+	cursor.y = coords.y;
 }
 
 socket.on("draw", (event) => {
@@ -185,6 +212,7 @@ socket.on("draw", (event) => {
 socket.on("sync", (data) => {
 	renderer.addAll(data);
 	if($("loading")) $("loading").remove();
+	setStatus("ready");
 });
 
 socket.on("connect", () => {
@@ -192,12 +220,12 @@ socket.on("connect", () => {
 });
 
 const canvas = $("canvas");
-canvas.addEventListener("mousedown", mousedown);
-canvas.addEventListener("mouseup", mouseup);
-canvas.addEventListener("mousemove", mousemove);
-canvas.addEventListener("touchstart", mousedown);
-canvas.addEventListener("touchmove", mousemove);
-canvas.addEventListener("touchend", mouseup);
-canvas.addEventListener("touchcancel", mouseup);
-window.addEventListener("resize", renderer.resize);
+canvas.addEventListener("mousedown", handle);
+canvas.addEventListener("mouseup", handle);
+canvas.addEventListener("mousemove", handle);
+canvas.addEventListener("touchstart", handle);
+canvas.addEventListener("touchmove", handle);
+canvas.addEventListener("touchend", handle);
+canvas.addEventListener("touchcancel", handle);
+window.addEventListener("resize", () => renderer.resize());
 
