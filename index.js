@@ -39,6 +39,6 @@ io.on("connection", (socket) => {
 	socket.on("draw", (msg) => {
 		msg = { ...msg, id };
 		io.to(room()).emit("draw", msg);
-		if(rooms.has(room())) rooms.get(room()).push(msg);
+		if(rooms.has(room()) && !msg.drop) rooms.get(room()).push(msg);
 	});
 });
