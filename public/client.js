@@ -1,113 +1,125 @@
 const $ = e => document.getElementById(e);
 const setStatus = str => $("status").innerText = str;
 const socket = io();
-const size = 15000;
 
 // someone's (or your) pen
-class Pen {
+class Stroke {
 	constructor({ x, y, color = "black", stroke = 5 }) {
-		this.startx = x;
-		this.starty = y;
 		this.color = color;
 		this.stroke = stroke;
 		this.path = new Path2D();
-	}
-}
-
-// take in events and process them
-class Drawer {
-	constructor() {
-		this.canvas = new OffscreenCanvas(size, size);
-		this.ctx = this.canvas.getContext("2d");
-		this.history = [];
-		
-		// a temporary "staging area" before being drawn to the main canvas
-		this.tmpcanvas = new OffscreenCanvas(size, size);
-		this.tmpctx = this.canvas.getContext("2d");
-		this.tmphistory = [];
-
-		this.pens = new Map();
-		this.ctx.lineCap = "round";
-		this.ctx.lineJoin = "round";
+		this.reset(x, y);
 	}
 
-	chain(event) {
-		const { pens, ctx, tmpctx } = this;
-		const pen = pens.get(event.id);
-		if(event.type === "drawstart") {
-			const pen = new Pen(event);
-			pen.path.moveTo(pen.startx, pen.starty);
-			pens.set(event.id, pen);
-		} else if(!pens.has(event.id)) {
-			return;
-		} else if(event.type === "drawline") {
-			// pen.path.lineTo(event.x, event.y);
-			// pen.path.moveTo(pen.startx, pen.starty);
-			// tmpctx.strokeStyle = pen.color;
-			// tmpctx.lineWidth = pen.stroke;
-			// tmpctx.stroke(pen.path);
-		} else if(event.type === "drawmove" || event.type === "drawend") {
-			pen.path.lineTo(event.x, event.y);
-			ctx.strokeStyle = pen.color;
-			ctx.lineWidth = pen.stroke;
-			ctx.stroke(pen.path);
+	reset(x, y) {
+		for(let i of ["start", "min", "max", "end"]) {
+			this[i + "X"] = x;
+			this[i + "Y"] = y;
 		}
+		this.path.moveTo(x, y);
 	}
 
-	// tmprender() {
-	// 	this.tmpctx.clearRect(0, 0, size, size);
-	// }
-
-	// *very* expensive
-	render() {
-		this.ctx.clearRect(0, 0, size, size);
-		for(let event of this.history) this.chain(event);
+	add(x, y) {
+		this.path.lineTo(x, y);
+		if(x < this.minX) this.minX = x;
+		if(y < this.minY) this.minY = y;
+		if(x > this.maxX) this.maxX = x;
+		if(y > this.maxY) this.maxY = y;
+		this.endX = x;
+		this.endY = y;
 	}
 
-	add(event) {
-		this.history.push(event);
-		this.chain(event);
+	line(x, y) {
+		this.path = new Path2D();
+		this.reset(this.startX, this.startY);
+		this.add(x, y);
+	}
+
+	intersect(rect) {
+		if(this.minX > rect.x + rect.width) return false;
+		if(this.minY > rect.y + rect.height) return false;
+		if(this.maxX < rect.x) return false;
+		if(this.maxY < rect.y) return false;
+		return true;
 	}
 }
 
 // render a drawer to canvas
 class Renderer {
 	constructor(canvas) {
-		this.drawer = new Drawer();
 		this.canvas = canvas;
 		this.ctx = canvas.getContext("2d");
-		this.pan = [size/-2, size/-2];
+		this.pan = [0, 0];
+		this.scale = 1;
+
+		// drawing
+		this.strokes = new Map();
+		this.history = [];
+
+		// init canvas
+		this.ctx.lineCap = "round";
+		this.ctx.lineJoin = "round";
 		this.resize();
 	}
 
+	panBy(x, y) {
+		this.pan[0] += x;
+		this.pan[1] += y;
+		this.ctx.translate(x, y);
+	}
+
 	resize() {
-		this.canvas.height = window.innerHeight;
-		this.canvas.width = window.innerWidth;
-		this.ctx.height = window.innerHeight;
-		this.ctx.width = window.innerWidth;
-		this.ctx.clearRect(0, 0, size, size);
-		this.render();
+		const width = window.innerWidth;
+		const height = window.innerHeight;
+		this.canvas.height = height; 
+		this.canvas.width = width;
+		this.ctx.height = height;
+		this.ctx.width = width;
+		this.ctx.clearRect(0, 0, width, height);
+		this.redraw();
+	}
+
+	stroke(stroke) {
+		const { ctx } = this;
+		ctx.strokeStyle = stroke.color;
+		ctx.lineWidth = stroke.stroke;
+		ctx.stroke(stroke.path);
 	}
 
 	add(event) {
-		this.drawer.add(event);
-		this.render();
+		const { strokes } = this;
+		const stroke = strokes.get(event.id);
+		if(event.type === "drawstart") {
+			const stroke = new Stroke(event);
+			strokes.set(event.id, stroke);
+		} else if(!strokes.has(event.id)) {
+			return;
+		} else if(event.type === "drawline") {
+			this.redraw();
+			stroke.line(event.x, event.y);
+			this.stroke(stroke);
+		} else if(event.type === "drawmove" || event.type === "drawend") {
+			stroke.add(event.x, event.y);
+			this.stroke(stroke);
+			if(event.type === "drawend") this.history.push(stroke);
+		}
 	}
 
 	addAll(events) {
-		this.drawer.history.push(...events);
-		this.drawer.render();
-		this.render();
+		for(let event of events) this.add(event);
 	}
 
-	render() {
+	redraw() {
+		const { ctx } = this;
 		const width = window.innerWidth;
 		const height = window.innerHeight;
-		this.ctx.clearRect(0, 0, size, size);
-		this.ctx.drawImage(this.drawer.canvas, -this.pan[0], -this.pan[1], width, height, 0, 0, width, height);
-		// this.ctx.globalAlpha = 0.4;
-		// this.ctx.drawImage(this.drawer.tmpcanvas, -this.pan[0], -this.pan[1], width, height, 0, 0, width, height);
-		// this.ctx.globalAlpha = 1;
+		const rect = { x: -this.pan[0], y: -this.pan[1], width, height };
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, width, height);
+		ctx.translate(this.pan[0], this.pan[1]);
+		for(let stroke of this.history) {
+			if(stroke.intersect(rect)) this.stroke(stroke);
+		}
 	}
 }
 
@@ -147,13 +159,14 @@ const cursor = { pressed: false, x: 0, y: 0 };
 const renderer = new Renderer($("canvas"));
 const colors = new ColorSelection($("picker"));
 colors.addAll([
-	"#F45B69",
-	"#FE7F2D",
-	"#FCCA46",
-	"#87FF65",
-	"#00A5CF",
-	"#7D5BA6",
-	"#312F2F",
+	"#F45B69", // red
+	"#FE7F2D", // orange
+	"#FCCA46", // yellow
+	"#87FF65", // green
+	"#00A5CF", // blue
+	"#7D5BA6", // purple
+	"#312F2F", // black
+	"#424B54", // gray
 ]);
 colors.random();
 colors.add("white");
@@ -199,24 +212,16 @@ function handle(e) {
 	if(!coords) return;
 	const type = parseType(e);
 	if(e.which === 1) {
-		if(e.shiftKey) {
-			setStatus("line");
-			const event = parseDrawEvent(coords, type, e);
-			if(!event) return;
-			renderer.add(event);
-			socket.emit("draw", event);
-		} else {
-			setStatus("drawing");
-			const event = parseDrawEvent(coords, type, e);
-			if(!event) return;
-			renderer.add(event);
-			socket.emit("draw", event);
-		}
-	} else if(cursor.pressed && e.which === 2) {
+		setStatus(e.shiftKey ? "line" : "drawing");
+		const event = parseDrawEvent(coords, type);
+		if(!event) return;
+		if(e.shiftKey && type === "drawmove") event.type = "drawline";
+		renderer.add(event);
+		socket.emit("draw", event);
+	} else if(e.which === 2) {
 		setStatus("panning");
-		renderer.pan[0] += coords.x - cursor.x;
-		renderer.pan[1] += coords.y - cursor.y;
-		renderer.render();
+		renderer.panBy(coords.x - cursor.x, coords.y - cursor.y);
+		renderer.redraw();
 	}
 	if(type === "drawstart") cursor.pressed = true;
 	if(type === "drawend") {

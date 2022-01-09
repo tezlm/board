@@ -6,6 +6,7 @@ body {
 	margin: 0;
 	overflow: hidden;
 	font-family: "Trebuchet MS", Arial, sans-serif;
+	touch-action: none;
 }
 
 #bottom {
